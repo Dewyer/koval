@@ -5,6 +5,7 @@ edition = "2021"
 license-file="LICENSE"
 homepage="https://github.com/Dewyer/koval"
 repository="https://github.com/Dewyer/koval"
+description="A very minimal IOC container"
 
 [dependencies]
 thiserror = "1.0.30"
