@@ -5,7 +5,7 @@ use crate::Injectable;
 use std::sync::Arc;
 use crate::InjectionError;
 
-pub type ResolutionFn = Arc<dyn Fn(&Container) -> Result<Arc<dyn Any>, InjectionError>>;
+pub type ResolutionFn = Arc<dyn Fn(&Container) -> Result<Arc<dyn Any>, InjectionError> + Send + Sync + 'static>;
 
 #[derive(Eq, PartialEq, Clone)]
 pub enum ResolutionType {
@@ -26,7 +26,7 @@ pub struct Container {
 }
 
 fn wrap_injectable<T, Fi>(inj_fun: &'static Fi) -> ResolutionFn
-where Fi: 'static + Fn(&Container) -> Result<T, InjectionError>, Result<T, InjectionError>: 'static
+where Fi: 'static + Send + Sync + Fn(&Container) -> Result<T, InjectionError>, Result<T, InjectionError>: 'static
 {
     Arc::new(|cont: &Container| -> Result<Arc<dyn Any>, InjectionError> {
         let resolved = inj_fun(cont)?;
