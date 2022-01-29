@@ -5,7 +5,7 @@ use crate::Injectable;
 use std::sync::Arc;
 use crate::InjectionError;
 
-pub type ResolutionFn = Arc<dyn Fn(&Container) -> Result<Arc<dyn Any>, InjectionError> + Send + Sync + 'static>;
+pub type ResolutionFn = Arc<dyn Fn(&Container) -> Result<Arc<dyn Any + Send + Sync>, InjectionError> + Send + Sync + 'static>;
 
 #[derive(Eq, PartialEq, Clone)]
 pub enum ResolutionType {
@@ -16,7 +16,7 @@ pub enum ResolutionType {
 #[derive(Clone)]
 pub struct Resolution {
     pub resolution_type: ResolutionType,
-    pub stored_instance: Option<Arc<dyn Any>>,
+    pub stored_instance: Option<Arc<dyn Any + Send + Sync>>,
     pub resolution_fn: ResolutionFn,
 }
 
@@ -26,9 +26,9 @@ pub struct Container {
 }
 
 fn wrap_injectable<T, Fi>(inj_fun: &'static Fi) -> ResolutionFn
-where Fi: 'static + Send + Sync + Fn(&Container) -> Result<T, InjectionError>, Result<T, InjectionError>: 'static
+where Fi: 'static + Send + Sync + Fn(&Container) -> Result<T, InjectionError>, Result<T, InjectionError>: 'static, T: Send + Sync
 {
-    Arc::new(|cont: &Container| -> Result<Arc<dyn Any>, InjectionError> {
+    Arc::new(|cont: &Container| -> Result<Arc<dyn Any + Send + Sync>, InjectionError> {
         let resolved = inj_fun(cont)?;
 
         Ok(Arc::new(resolved))
@@ -43,8 +43,8 @@ impl Container {
     }
 
     pub fn bind_singleton<InjTraitType, ActType>(mut self) -> Self
-    where InjTraitType: 'static + Sized,
-        ActType: Injectable<InjTraitType> + 'static,
+    where InjTraitType: 'static + Sized + Send + Sync,
+        ActType: Injectable<InjTraitType> + 'static + Send + Sync,
     {
         let id = TypeId::of::<InjTraitType>();
         self.bindings.insert(id, Resolution {
@@ -57,8 +57,8 @@ impl Container {
     }
 
     pub fn bind_transient<InjTraitType, ActType>(mut self) -> Self
-        where InjTraitType: 'static + Sized,
-              ActType: Injectable<InjTraitType> + 'static,
+        where InjTraitType: 'static + Sized + Send + Sync,
+              ActType: Injectable<InjTraitType> + 'static + Send + Sync,
     {
         let id = TypeId::of::<InjTraitType>();
         self.bindings.insert(id, Resolution {
@@ -115,7 +115,7 @@ impl Container {
         let old_instance = self.clone();
         for (id, val) in old_instance.bindings.iter() {
             if val.resolution_type == ResolutionType::Singleton && val.stored_instance.is_none() {
-                let instance: Arc<dyn Any> = (val.resolution_fn)(&self)?;
+                let instance: Arc<dyn Any + Send + Sync> = (val.resolution_fn)(&self)?;
                 let in_self = self.bindings.get_mut(&id).unwrap();
                 in_self.stored_instance = Some(instance);
             }

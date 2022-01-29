@@ -3,7 +3,7 @@ mod tests {
     use std::sync::Arc;
     use crate::{Container, Injectable, InjectionError};
 
-    trait ServiceTrait {
+    trait ServiceTrait: Send + Sync {
         fn do_something(&self) -> i32;
     }
 
