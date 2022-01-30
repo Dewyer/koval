@@ -145,8 +145,11 @@ impl Container {
     /// tires to store all singeletons so later the container can be used with a non mut resolve fn
     pub fn build(mut self) -> Result<Self, InjectionError> {
         let old_instance = self.clone();
-        for (_, val) in old_instance.bindings.iter() {
-            if val.resolution_type == ResolutionType::Singleton && val.stored_instance.is_none() {
+        for (id, val) in old_instance.bindings.iter() {
+            let current_has_stored_instance = self.bindings.get(id)
+                .map(|val| val.stored_instance.is_some())
+                .unwrap_or(false);
+            if val.resolution_type == ResolutionType::Singleton && !current_has_stored_instance {
                 (val.resolution_fn)(&mut self)?;
             }
         }
