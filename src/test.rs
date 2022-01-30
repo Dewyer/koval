@@ -17,7 +17,7 @@ mod tests {
     }
 
     impl Injectable<Arc<dyn ServiceTrait>> for ServiceImpl {
-        fn resolve_injectable(_: &Container) -> Result<Arc<dyn ServiceTrait>, InjectionError> {
+        fn resolve_injectable(_: &mut Container) -> Result<Arc<dyn ServiceTrait>, InjectionError> {
             Ok(Arc::new(Self {}))
         }
     }
@@ -25,7 +25,7 @@ mod tests {
 
     #[test]
     fn it_works_unbuilt() {
-        let container = Container::new()
+        let mut container = Container::new()
             .bind_singleton::<Arc<dyn ServiceTrait>, ServiceImpl>();
 
         let srv = container.resolve::<Arc<dyn ServiceTrait>>()
@@ -76,7 +76,7 @@ mod tests {
     }
 
     impl Injectable<IFooService> for FooServiceImpl {
-        fn resolve_injectable(_: &Container) -> Result<IFooService, InjectionError> {
+        fn resolve_injectable(_: &mut Container) -> Result<IFooService, InjectionError> {
             Ok(Arc::new(FooServiceImpl {}))
         }
     }

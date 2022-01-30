@@ -5,7 +5,7 @@ use crate::Injectable;
 use std::sync::Arc;
 use crate::InjectionError;
 
-pub type ResolutionFn = Arc<dyn Fn(&Container) -> Result<Arc<dyn Any + Send + Sync>, InjectionError> + Send + Sync + 'static>;
+pub type ResolutionFn = Arc<dyn Fn(&mut Container) -> Result<Arc<dyn Any + Send + Sync>, InjectionError> + Send + Sync + 'static>;
 
 #[derive(Eq, PartialEq, Clone)]
 pub enum ResolutionType {
@@ -26,9 +26,9 @@ pub struct Container {
 }
 
 fn wrap_injectable<T, Fi>(inj_fun: &'static Fi) -> ResolutionFn
-where Fi: 'static + Send + Sync + Fn(&Container) -> Result<T, InjectionError>, Result<T, InjectionError>: 'static, T: Send + Sync
+where Fi: 'static + Send + Sync + Fn(&mut Container) -> Result<T, InjectionError>, Result<T, InjectionError>: 'static, T: Send + Sync
 {
-    Arc::new(|cont: &Container| -> Result<Arc<dyn Any + Send + Sync>, InjectionError> {
+    Arc::new(|cont: &mut Container| -> Result<Arc<dyn Any + Send + Sync>, InjectionError> {
         let resolved = inj_fun(cont)?;
 
         Ok(Arc::new(resolved))
@@ -70,8 +70,45 @@ impl Container {
         self
     }
 
-    pub fn resolve<InjTraitType>(&self) -> Result<InjTraitType, InjectionError>
+    fn downcast_resolved<T: 'static + Clone>(resolved: Arc<dyn Any + Send + Sync>) -> Result<T, InjectionError> {
+        resolved
+            .deref()
+            .downcast_ref::<T>()
+            .map(|cc| cc.clone())
+            .ok_or(InjectionError::TypeNotBound)
+    }
+
+    /// In case of non stored singeleton, this resolve fn will store the resolution result
+    pub fn resolve_mut<InjTraitType>(&mut self) -> Result<InjTraitType, InjectionError>
     where InjTraitType: 'static + Clone
+    {
+        let id = TypeId::of::<InjTraitType>();
+        let mut binding = self.bindings.get_mut(&id)
+            .ok_or(InjectionError::TypeNotBound)?.clone();
+
+
+        if binding.resolution_type == ResolutionType::Singleton {
+            if let Some(inst) = binding.stored_instance.as_ref() {
+                Self::downcast_resolved(inst.clone())
+            } else {
+                let resolved = (binding.resolution_fn)(self)?;
+                binding.stored_instance = Some(resolved.clone());
+                self.bindings.insert(id, binding);
+                Self::downcast_resolved(resolved)
+            }
+        }
+        else if binding.resolution_type == ResolutionType::Transient {
+            let resolved = (binding.resolution_fn)(self)?;
+            Self::downcast_resolved(resolved)
+        }
+        else {
+            unreachable!();
+        }
+    }
+
+    /// In case of non stored singeleton, this resolve fn will NOT store the resolution result
+    pub fn resolve<InjTraitType>(&self) -> Result<InjTraitType, InjectionError>
+        where InjTraitType: 'static + Clone
     {
         let id = TypeId::of::<InjTraitType>();
         let binding = self.bindings.get(&id)
@@ -80,23 +117,17 @@ impl Container {
 
         if binding.resolution_type == ResolutionType::Singleton {
             if let Some(inst) = binding.stored_instance.as_ref() {
-                inst.clone()
-                    .deref()
-                    .downcast_ref::<InjTraitType>()
-                    .map(|cc| cc.clone())
-                    .ok_or(InjectionError::TypeNotBound)
+                Self::downcast_resolved(inst.clone())
             } else {
-                let resolved = (binding.resolution_fn)(self)?;
-                resolved.deref().downcast_ref::<InjTraitType>()
-                    .map(|cc| cc.clone())
-                    .ok_or(InjectionError::TypeNotBound)
+                // Bit costy but hey
+                let resolved = (binding.resolution_fn)(&mut self.clone())?;
+                Self::downcast_resolved(resolved)
             }
         }
         else if binding.resolution_type == ResolutionType::Transient {
-            let resolved = (binding.resolution_fn)(self)?;
-            resolved.deref().downcast_ref::<InjTraitType>()
-                .map(|cc| cc.clone())
-                .ok_or(InjectionError::TypeNotBound)
+            // Bit costy but hey
+            let resolved = (binding.resolution_fn)(&mut self.clone())?;
+            Self::downcast_resolved(resolved)
         }
         else {
             unreachable!();
@@ -111,13 +142,12 @@ impl Container {
         self
     }
 
+    /// tires to store all singeletons so later the container can be used with a non mut resolve fn
     pub fn build(mut self) -> Result<Self, InjectionError> {
         let old_instance = self.clone();
-        for (id, val) in old_instance.bindings.iter() {
+        for (_, val) in old_instance.bindings.iter() {
             if val.resolution_type == ResolutionType::Singleton && val.stored_instance.is_none() {
-                let instance: Arc<dyn Any + Send + Sync> = (val.resolution_fn)(&self)?;
-                let in_self = self.bindings.get_mut(&id).unwrap();
-                in_self.stored_instance = Some(instance);
+                (val.resolution_fn)(&mut self)?;
             }
         }
 
